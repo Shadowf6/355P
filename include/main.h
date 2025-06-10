@@ -5,6 +5,7 @@
 
 #include "api.h"
 #include "lemlib/api.hpp"
+#include "liblvgl/lvgl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,6 +20,5 @@ void opcontrol(void);
 #endif
 
 #ifdef __cplusplus
-#include <stdio.h>
 #endif
 #endif
