@@ -4,6 +4,11 @@
 pros::MotorGroup leftMotors({-0, -0, -0}, pros::MotorGearset::blue);
 pros::MotorGroup rightMotors({0, 0, 0}, pros::MotorGearset::blue);
 
+pros::Motor intake(0);
+pros::Motor lift(0);
+pros::Motor high(0);
+pros::Motor low(0);
+
 // Create drivetrain
 lemlib::Drivetrain drivetrain(&leftMotors, &rightMotors, // motors
                               16, // track width
@@ -12,7 +17,7 @@ lemlib::Drivetrain drivetrain(&leftMotors, &rightMotors, // motors
                               2 // horizontal drift
 );
 
-// Get inertial sensor                              
+// Get inertial sensor
 pros::Imu imu(0);
 
 // Get encoders
@@ -52,26 +57,32 @@ lemlib::ExpoDriveCurve steerCurve(3, 10, 1.019); // deadband, min output, expone
 // Finalize chassis                                             
 lemlib::Chassis chassis(drivetrain, lateralController, angularController, odom, &throttleCurve, &steerCurve);
 
-// Get motors
-pros::Motor intake(0);
-pros::Motor lift(0);
-pros::Motor high(0);
-pros::Motor low(0);
-
 // Get pneumatics
 pros::adi::Pneumatics wing(0, false);
 pros::adi::Pneumatics puncher(0, false);
 
-// Competition Specific
-int goon = 1;
-int total = 6;
+// Get controller
+pros::Controller controller(pros::E_CONTROLLER_MASTER);
+
+// Autonomous selector
+int auton = 1;
+int total = 1;
 bool comp = false;
 
-// Brain display
+std::unordered_map<int, std::string> descriptions = {
+    {1, ""}, 
+    {2, ""}, 
+    {3, ""}, 
+    {4, ""}, 
+    {5, ""}, 
+    {6, ""}, 
+    {7, "Skills"}
+};
+
+// Brain display (using LGVL)
 lv_obj_t *screen;
 lv_obj_t *lx, *ly, *lt; // Coordinate labels
-lv_obj_t *curr; // Autonomous selector labels
-lv_obj_t *lb, *rb; // Autonomous selector buttons
+lv_obj_t *curr, *desc; // Autonomous selector labels
 
 
 void initialize() {
@@ -88,14 +99,17 @@ void initialize() {
     lx = lv_label_create(screen);
     ly = lv_label_create(screen);
     lt = lv_label_create(screen);
+
     lv_obj_align(lx, LV_ALIGN_LEFT_MID, 0, 20);
     lv_obj_align(ly, LV_ALIGN_LEFT_MID, 0, 50);
     lv_obj_align(lt, LV_ALIGN_LEFT_MID, 0, 80);
 
     pros::Task screen([&]() {
         while (true) {
+            lv_task_handler();
+
             // Prepare coordinates
-            char x[8], y[8], t[8];
+            char x[20], y[20], t[20];
             snprintf(x, sizeof(x), "X: %.3f", chassis.getPose().x);
             snprintf(y, sizeof(x), "Y: %.3f", chassis.getPose().y);
             snprintf(t, sizeof(t), "Theta: %.3f", chassis.getPose().theta);
@@ -105,8 +119,6 @@ void initialize() {
             lv_label_set_text(ly, y);
             lv_label_set_text(lt, t);
 
-            lv_task_handler();
-
             // Delay to save resources
             pros::delay(20);
         }
@@ -114,24 +126,6 @@ void initialize() {
 }
 
 void disabled() {}
-
-void lclick(lv_event_t *e) {
-    // Cycle to previous auton
-    goon = (goon + total - 2) % total + 1; 
-
-    char g[2];
-    snprintf(g, sizeof(g), "%d", goon);
-    lv_label_set_text(curr, g);
-}
-
-void rclick(lv_event_t *e) { 
-    // Cycle to next auton
-    goon = goon % total + 1;
-    
-    char g[2];
-    snprintf(g, sizeof(g), "%d", goon);
-    lv_label_set_text(curr, g);
-}
 
 void competition_initialize() {
     // Competition flag
@@ -148,46 +142,71 @@ void competition_initialize() {
 
     // Auton selector
     curr = lv_label_create(screen);
-    lb = lv_btn_create(screen);
-    rb = lv_btn_create(screen);
+    desc = lv_label_create(screen);
+
     lv_obj_align(curr, LV_ALIGN_TOP_RIGHT, 0, 50);
-    lv_obj_align(lb, LV_ALIGN_CENTER, 100, 90);
-    lv_obj_align(rb, LV_ALIGN_CENTER, 100, 130);
+    lv_obj_align(desc, LV_ALIGN_TOP_RIGHT, 0, 80);
     lv_label_set_text(curr, "1");
-    lv_obj_add_event_cb(lb, lclick, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(rb, rclick, LV_EVENT_CLICKED, NULL);
+
+    char d[100];
+    snprintf(d, sizeof(d), "%s", descriptions[auton]);
+    lv_label_set_text(desc, d);
+
+    // Wait for button presses
+    while (true) {
+        // Previous auton
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_LEFT)) {
+            // Cycle to previous
+            auton = (auton + total - 2) % total + 1; 
+
+            // Display current auton
+            char a[3], d[100];
+            snprintf(a, sizeof(a), "%d", auton);
+            snprintf(d, sizeof(d), "%s", descriptions[auton]);
+
+            lv_label_set_text(curr, a);
+            lv_label_set_text(desc, d);
+        }
+
+        // Next auton
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+            // Cycle to next
+            auton = auton % total + 1;
+            
+            // Display current auton
+            char a[3], d[100];
+            snprintf(a, sizeof(a), "%d", auton);
+            snprintf(d, sizeof(d), "%s", descriptions[auton]);
+
+            lv_label_set_text(curr, a);
+            lv_label_set_text(desc, d);
+        }
+        
+        // Delay to save resources
+        pros::delay(20);
+    }
 }
 
 void autonomous() {
     // Clear screen
     if (comp) {
         lv_obj_del(curr);
-        lv_obj_del(lb);
-        lv_obj_del(rb);
+        lv_obj_del(desc);
     }
 
     // Reset inertial sensor
     imu.set_heading(0);
 
-    // Run auton
-    switch (goon) {
-        case 1: break; // Red, top
-        case 2: break; // Red, bottom
-        case 3: break; // Blue, top
-        case 4: break; // Blue, bottom
-        case 5: break; // Red
-        case 6: break; // Blue
+    // Run autonomous
+    switch (auton) {
+        case 1: break;
     }
 }
 
 void opcontrol() {
-    // Get controller
-    pros::Controller controller(pros::E_CONTROLLER_MASTER);
-
     while (true) {
         // Move robot (tank drive)
-        chassis.tank(controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y), 
-                     controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y));
+        chassis.tank(controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y), controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y));
 
         // Delay to save resources
         pros::delay(20);
