@@ -12,7 +12,7 @@ pros::Motor low(0);
 // Create drivetrain
 lemlib::Drivetrain drivetrain(&leftMotors, &rightMotors, // motors
                               16, // track width
-                              lemlib::Omniwheel::NEW_275, // wheels
+                              lemlib::Omniwheel::NEW_325, // wheels
                               450, // rpm
                               2 // horizontal drift
 );
@@ -51,8 +51,8 @@ lemlib::ControllerSettings angularController(2, // kP
 );
 
 // Create drive curves
-lemlib::ExpoDriveCurve throttleCurve(3, 10, 1.019); // deadband, min output, exponential curve gain
-lemlib::ExpoDriveCurve steerCurve(3, 10, 1.019); // deadband, min output, exponential curve gain
+lemlib::ExpoDriveCurve throttleCurve(5, 10, 1.04); // deadband, min output, exponential curve gain
+lemlib::ExpoDriveCurve steerCurve(5, 10, 1.04); // deadband, min output, exponential curve gain
 
 // Finalize chassis                                             
 lemlib::Chassis chassis(drivetrain, lateralController, angularController, odom, &throttleCurve, &steerCurve);
@@ -65,25 +65,21 @@ pros::adi::Pneumatics puncher(0, false);
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
 // Autonomous selector
-int auton = 1;
+int auton = 1; // can also modify this for test runs
 int total = 1;
-bool comp = false;
-
-std::unordered_map<int, std::string> descriptions = {
-    {1, ""}, 
-    {2, ""}, 
-    {3, ""}, 
-    {4, ""}, 
-    {5, ""}, 
-    {6, ""}, 
-    {7, "Skills"}
-};
+const char* descriptions[] = {"I am currently gooning to Shakey."};
 
 // Brain display (using LGVL)
 lv_obj_t *screen;
 lv_obj_t *lx, *ly, *lt; // Coordinate labels
 lv_obj_t *curr, *desc; // Autonomous selector labels
+lv_obj_t *next, *prev; // Autonomous selector buttons
+lv_obj_t *lnext, *lprev; // Autonomous selector button labels
 
+// Autonomous selector callback functions
+void update() { char a[30]; snprintf(a, sizeof(a), "Selected Auton: %d", auton); lv_label_set_text(curr, a); lv_label_set_text(desc, descriptions[auton - 1]); }
+void forward(lv_event_t* e) { auton = auton % total + 1; update(); }
+void back(lv_event_t* e) { auton = (auton + total - 2) % total + 1; update(); }
 
 void initialize() {
     // Initialize robot
@@ -99,26 +95,50 @@ void initialize() {
     lx = lv_label_create(screen);
     ly = lv_label_create(screen);
     lt = lv_label_create(screen);
+    lv_obj_align(lx, LV_ALIGN_TOP_LEFT, 20, 20);
+    lv_obj_align(ly, LV_ALIGN_TOP_LEFT, 20, 50);
+    lv_obj_align(lt, LV_ALIGN_TOP_LEFT, 20, 80);
 
-    lv_obj_align(lx, LV_ALIGN_LEFT_MID, 0, 20);
-    lv_obj_align(ly, LV_ALIGN_LEFT_MID, 0, 50);
-    lv_obj_align(lt, LV_ALIGN_LEFT_MID, 0, 80);
+    // Create autonomous selector labels
+    curr = lv_label_create(screen);
+    desc = lv_label_create(screen);
+    lv_obj_align(curr, LV_ALIGN_TOP_RIGHT, -50, 50);
+    lv_obj_align(desc, LV_ALIGN_TOP_RIGHT, -50, 80);
+    update();
+    
+    // Create autonomous selector buttons
+    next = lv_btn_create(screen);
+    prev = lv_btn_create(screen);
+    lv_obj_align(next, LV_ALIGN_TOP_RIGHT, -50, 120);
+    lv_obj_align(prev, LV_ALIGN_TOP_RIGHT, -120, 120);
+    lv_obj_set_style_bg_color(next, lv_color_hex(0x808080), 0);
+    lv_obj_set_style_bg_color(prev, lv_color_hex(0x808080), 0);
+    lv_obj_add_event_cb(next, forward, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(prev, back, LV_EVENT_CLICKED, nullptr);
 
-    pros::Task screen([&]() {
+    // Create autonomous selector labels
+    lnext = lv_label_create(next);
+    lprev = lv_label_create(prev);
+    lv_obj_align(lnext, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(lprev, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(lnext, ">");
+    lv_label_set_text(lprev, "<");
+
+    pros::Task screenTask([&]() {
         while (true) {
             lv_task_handler();
 
-            // Prepare coordinates
+            // lv_label_set_text() cannot directly take a string variable, so we convert it into a char[] type (character array)
             char x[20], y[20], t[20];
             snprintf(x, sizeof(x), "X: %.3f", chassis.getPose().x);
-            snprintf(y, sizeof(x), "Y: %.3f", chassis.getPose().y);
+            snprintf(y, sizeof(y), "Y: %.3f", chassis.getPose().y);
             snprintf(t, sizeof(t), "Theta: %.3f", chassis.getPose().theta);
 
             // Display coordinates of the robot on the screen
             lv_label_set_text(lx, x);
             lv_label_set_text(ly, y);
             lv_label_set_text(lt, t);
-
+             
             // Delay to save resources
             pros::delay(20);
         }
@@ -127,72 +147,12 @@ void initialize() {
 
 void disabled() {}
 
-void competition_initialize() {
-    // Competition flag
-    comp = true;
-
-    // Reset odometry
-    horizontalEncoder.reset_position();
-    pros::delay(100);
-    horizontalTrackingWheel.reset();
-    pros::delay(100);
-    verticalEncoder.reset_position();
-    pros::delay(100);
-    verticalTrackingWheel.reset();
-
-    // Auton selector
-    curr = lv_label_create(screen);
-    desc = lv_label_create(screen);
-
-    lv_obj_align(curr, LV_ALIGN_TOP_RIGHT, 0, 50);
-    lv_obj_align(desc, LV_ALIGN_TOP_RIGHT, 0, 80);
-    lv_label_set_text(curr, "1");
-
-    char d[100];
-    snprintf(d, sizeof(d), "%s", descriptions[auton]);
-    lv_label_set_text(desc, d);
-
-    // Wait for button presses
-    while (true) {
-        // Previous auton
-        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_LEFT)) {
-            // Cycle to previous
-            auton = (auton + total - 2) % total + 1; 
-
-            // Display current auton
-            char a[3], d[100];
-            snprintf(a, sizeof(a), "%d", auton);
-            snprintf(d, sizeof(d), "%s", descriptions[auton]);
-
-            lv_label_set_text(curr, a);
-            lv_label_set_text(desc, d);
-        }
-
-        // Next auton
-        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
-            // Cycle to next
-            auton = auton % total + 1;
-            
-            // Display current auton
-            char a[3], d[100];
-            snprintf(a, sizeof(a), "%d", auton);
-            snprintf(d, sizeof(d), "%s", descriptions[auton]);
-
-            lv_label_set_text(curr, a);
-            lv_label_set_text(desc, d);
-        }
-        
-        // Delay to save resources
-        pros::delay(20);
-    }
-}
+void competition_initialize() {}
 
 void autonomous() {
     // Clear screen
-    if (comp) {
-        lv_obj_del(curr);
-        lv_obj_del(desc);
-    }
+    lv_obj_del(next);
+    lv_obj_del(prev);
 
     // Reset inertial sensor
     imu.set_heading(0);
@@ -205,7 +165,7 @@ void autonomous() {
 
 void opcontrol() {
     while (true) {
-        // Move robot (tank drive)
+        // Tank Drive
         chassis.tank(controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y), controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y));
 
         // Delay to save resources

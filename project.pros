@@ -298,8 +298,9 @@
       }
     },
     "upload_options": {
-      "description": " PowerHouse",
-      "icon": "X"
+      "description": " ",
+      "icon": "alien",
+      "after": "none"
     },
     "use_early_access": false
   }
