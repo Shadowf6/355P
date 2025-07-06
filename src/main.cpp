@@ -1,34 +1,34 @@
 #include "main.h"
 
 // Get motors
-pros::MotorGroup leftMotors({-0, -0, -0}, pros::MotorGearset::blue);
-pros::MotorGroup rightMotors({0, 0, 0}, pros::MotorGearset::blue);
+pros::MotorGroup leftMotors({-8, 9, -10}, pros::MotorGearset::blue);
+pros::MotorGroup rightMotors({18, -19, 20}, pros::MotorGearset::blue);
 
-pros::Motor intake(0);
-pros::Motor lift(0);
-pros::Motor high(0);
-pros::Motor low(0);
+pros::Motor intake(1);
+pros::Motor lift(-2);
+pros::Motor redirect(3);
+pros::Motor high(-0);
 
 // Create drivetrain
 lemlib::Drivetrain drivetrain(&leftMotors, &rightMotors, // motors
-                              16, // track width
+                              12.5, // track width
                               lemlib::Omniwheel::NEW_325, // wheels
                               450, // rpm
                               2 // horizontal drift
 );
 
 // Get inertial sensor
-pros::Imu imu(0);
+pros::Imu imu(17);
 
-// Get encoders
-pros::Rotation horizontalEncoder(0);
-pros::Rotation verticalEncoder(0);
+// Get rotation sensors
+pros::Rotation horizontalEncoder(15);
+pros::Rotation verticalEncoder(-16);
 
-// Create tracking wheels
-lemlib::TrackingWheel horizontalTrackingWheel(&horizontalEncoder, lemlib::Omniwheel::NEW_275, 0); // encoder, wheels, offset
-lemlib::TrackingWheel verticalTrackingWheel(&verticalEncoder, lemlib::Omniwheel::NEW_275, 0); // encoder, wheels, offset
+// Create odom wheels
+lemlib::TrackingWheel horizontalTrackingWheel(&horizontalEncoder, lemlib::Omniwheel::NEW_275, 1.8); // encoder, wheels, offset
+lemlib::TrackingWheel verticalTrackingWheel(&verticalEncoder, lemlib::Omniwheel::NEW_275, 0.3); // encoder, wheels, offset
 
-// Finalize odometry
+// Finalize odomeztry
 lemlib::OdomSensors odom(&verticalTrackingWheel, nullptr, &horizontalTrackingWheel, nullptr, &imu); // vert, vert, hori, hori
 
 // PID
@@ -50,24 +50,30 @@ lemlib::ControllerSettings angularController(2, // kP
                                              0 // max acceleration
 );
 
-// Create drive curves
-lemlib::ExpoDriveCurve throttleCurve(5, 10, 1.04); // deadband, min output, exponential curve gain
-lemlib::ExpoDriveCurve steerCurve(5, 10, 1.04); // deadband, min output, exponential curve gain
-
 // Finalize chassis                                             
-lemlib::Chassis chassis(drivetrain, lateralController, angularController, odom, &throttleCurve, &steerCurve);
+lemlib::Chassis chassis(drivetrain, lateralController, angularController, odom);
 
 // Get pneumatics
-pros::adi::Pneumatics wing(0, false);
-pros::adi::Pneumatics puncher(0, false);
+pros::adi::Pneumatics leftWing(0, false);
+pros::adi::Pneumatics rightWing(0, false);
+pros::adi::Pneumatics leftTongue(0, false);
+pros::adi::Pneumatics rightTongue(0, false);
+pros::adi::Pneumatics eject(0, false);
+
+// Get distance sensor
+pros::Distance distanceSensor(0);
+
+// Get color sensor
+pros::Optical colorSensor(0);
 
 // Get controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
-// Autonomous selector
-int auton = 1; // can also modify this for test runs
+// Selectors
+int auton = 1; // can also modify this to select auton
 int total = 1;
-const char* descriptions[] = {"I am currently gooning to Shakey."};
+const char* descriptions[] = {"Test"};
+bool red = true;
 
 // Brain display (using LGVL)
 lv_obj_t *screen;
@@ -77,9 +83,10 @@ lv_obj_t *next, *prev; // Autonomous selector buttons
 lv_obj_t *lnext, *lprev; // Autonomous selector button labels
 
 // Autonomous selector callback functions
-void update() { char a[30]; snprintf(a, sizeof(a), "Selected Auton: %d", auton); lv_label_set_text(curr, a); lv_label_set_text(desc, descriptions[auton - 1]); }
+void update() { char a[20]; char c[20]; snprintf(a, sizeof(a), "Selected Auton: %d", auton); lv_label_set_text(curr, a); lv_label_set_text(desc, descriptions[auton - 1]);}
 void forward(lv_event_t* e) { auton = auton % total + 1; update(); }
 void back(lv_event_t* e) { auton = (auton + total - 2) % total + 1; update(); }
+
 
 void initialize() {
     // Initialize robot
@@ -104,7 +111,6 @@ void initialize() {
     desc = lv_label_create(screen);
     lv_obj_align(curr, LV_ALIGN_TOP_RIGHT, -50, 50);
     lv_obj_align(desc, LV_ALIGN_TOP_RIGHT, -50, 80);
-    update();
     
     // Create autonomous selector buttons
     next = lv_btn_create(screen);
@@ -124,7 +130,9 @@ void initialize() {
     lv_label_set_text(lnext, ">");
     lv_label_set_text(lprev, "<");
 
-    pros::Task screenTask([&]() {
+    update();
+
+    pros::Task display([&]() {
         while (true) {
             lv_task_handler();
 
@@ -150,12 +158,14 @@ void disabled() {}
 void competition_initialize() {}
 
 void autonomous() {
-    // Clear screen
+    // Prevent accidental variable change
     lv_obj_del(next);
     lv_obj_del(prev);
 
     // Reset inertial sensor
     imu.set_heading(0);
+
+    pros::Task antijam([&]() {});
 
     // Run autonomous
     switch (auton) {
@@ -167,6 +177,43 @@ void opcontrol() {
     while (true) {
         // Tank Drive
         chassis.tank(controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y), controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y));
+
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) { // Intake/High Goal
+            intake.move(127);
+            lift.move(127);
+            redirect.move(127);
+            high.move(127);
+        } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) { // Outtake
+            intake.move(-127);
+            lift.move(-127);
+            redirect.move(-127);
+            high.move(-127);
+        } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L2)) { // Middle Goal
+            intake.move(127);
+            lift.move(127);
+            redirect.move(127);
+            high.move(-127); 
+        } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1)) { // Redirect
+            intake.move(127);
+            lift.move(127);
+            redirect.move(-127);
+            high.move(-127);
+        } else {
+            intake.move(0);
+            lift.move(0);
+            redirect.move(0);
+            high.move(0);
+        }
+
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_LEFT)) {
+            if (leftWing.is_extended()) leftWing.retract();
+            else leftWing.extend(); rightWing.retract();
+        }
+
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+            if (rightWing.is_extended()) rightWing.retract();
+            else rightWing.extend(); leftWing.retract();
+        }
 
         // Delay to save resources
         pros::delay(20);
